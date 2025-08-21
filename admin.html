@@ -1,69 +1,141 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Quản lý truyện</title>
 <style>
-body { font-family: Arial, sans-serif; background:#f4f4f4; margin:0; padding:0;}
-.container { max-width:700px; margin:50px auto; background:#fff; padding:20px; border-radius:8px; box-shadow:0 0 10px rgba(0,0,0,0.1);}
-input, button { width:100%; padding:10px; margin:10px 0; }
-button { background:#28a745; color:#fff; border:none; cursor:pointer;}
-button:hover { background:#218838;}
+body { font-family: Arial, sans-serif; background:#f4f4f4; margin:0; }
+.container { max-width:700px; margin:40px auto; background:#fff; padding:20px; border-radius:8px; box-shadow:0 4px 18px rgba(0,0,0,.08); }
+input, button, label { width:100%; margin:10px 0; }
+button { padding:10px; background:#28a745; color:#fff; border:none; border-radius:6px; cursor:pointer; }
+button:hover { background:#218838; }
+.help { font-size:13px; color:#666; margin-top:-6px; }
+hr { border:0; border-top:1px solid #eee; margin:16px 0; }
+.row { display:flex; gap:10px; align-items:center; }
+.row > * { flex:1; }
 </style>
 </head>
 <body>
 <div class="container">
-    <h2>Thêm truyện mới</h2>
-    <input type="text" id="storyName" placeholder="Tên truyện">
-    <label>Ảnh bìa:</label>
-    <input type="file" id="coverInput" accept="image/*">
-    <label>Chọn các chap (file HTML):</label>
-    <input type="file" id="chapFiles" multiple accept=".html,.htm">
-    <button onclick="addStory()">Upload truyện</button>
-    <p id="msg" style="color:green;"></p>
+  <h2>Thêm truyện mới</h2>
+
+  <label>Tên truyện</label>
+  <input type="text" id="storyName" placeholder="VD: One Piece – Bản HTML" />
+
+  <label>Ảnh bìa</label>
+  <input type="file" id="coverInput" accept="image/*" />
+
+  <hr/>
+
+  <div class="row">
+    <div>
+      <label>Chọn nhiều chap (.html)</label>
+      <input type="file" id="chapFiles" multiple accept=".html,.htm" />
+      <div class="help">Tip iOS: vào thư mục chap → <b>Chọn</b> → <b>Chọn tất cả</b> → <b>Mở</b>.</div>
+    </div>
+    <div style="text-align:center; flex:0 0 auto;">hoặc</div>
+    <div>
+      <label>Upload 1 file .zip (chứa các chap .html)</label>
+      <input type="file" id="zipFile" accept=".zip" />
+      <div class="help">Nhanh nhất: nén nguyên thư mục chap → upload 1 lần.</div>
+    </div>
+  </div>
+
+  <button id="btnUpload">Tạo truyện</button>
+  <p id="msg" class="help"></p>
+  <p id="stat" class="help"></p>
 </div>
 
+<!-- JSZip CDN -->
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
 let stories = JSON.parse(localStorage.getItem("stories") || "[]");
 
-function addStory(){
-    const name = document.getElementById("storyName").value.trim();
-    const coverFile = document.getElementById("coverInput").files[0];
-    const files = document.getElementById("chapFiles").files;
+document.getElementById("btnUpload").addEventListener("click", async () => {
+  const name = document.getElementById("storyName").value.trim();
+  const coverFile = document.getElementById("coverInput").files[0];
+  const htmlFiles = Array.from(document.getElementById("chapFiles").files || []);
+  const zipFile = document.getElementById("zipFile").files[0];
 
-    if(!name || !coverFile || files.length === 0){
-        alert("Vui lòng nhập tên truyện, chọn ảnh bìa và ít nhất 1 chap!");
-        return;
-    }
+  if (!name || !coverFile || (!zipFile && htmlFiles.length === 0)) {
+    alert("Vui lòng nhập Tên truyện, chọn Ảnh bìa và chọn Chap (multi-HTML hoặc 1 file .zip).");
+    return;
+  }
 
-    // Đọc ảnh bìa thành Base64
-    const readerCover = new FileReader();
-    readerCover.onload = function(e){
-        const coverData = e.target.result;
-        const story = { storyName: name, cover: coverData, chapters: [] };
+  const coverData = await fileToDataURL(coverFile);
+  let chapters = [];
 
-        let loaded = 0;
-        for(const file of files){
-            const reader = new FileReader();
-            reader.onload = function(ev){
-                story.chapters.push({ name:file.name, content: ev.target.result });
-                loaded++;
-                if(loaded === files.length){
-                    // Sắp xếp chap theo tên file
-                    story.chapters.sort((a,b)=>a.name.localeCompare(b.name));
-                    stories.push(story);
-                    localStorage.setItem("stories", JSON.stringify(stories));
-                    document.getElementById("msg").innerText = "Upload thành công!";
-                    document.getElementById("storyName").value = "";
-                    document.getElementById("coverInput").value = "";
-                    document.getElementById("chapFiles").value = "";
-                }
-            };
-            reader.readAsText(file);
+  if (zipFile) {
+    setMsg("Đang giải nén .zip, vui lòng đợi…");
+    try {
+      const zip = await JSZip.loadAsync(zipFile);
+      const entries = [];
+      zip.forEach((path, entry) => {
+        if (!entry.dir && /\.(html?|HTML?)$/.test(entry.name)) {
+          entries.push(entry);
         }
-    };
-    readerCover.readAsDataURL(coverFile);
+      });
+      if (entries.length === 0) {
+        alert("Zip không có file .html nào.");
+        setMsg("");
+        return;
+      }
+      for (const e of entries) {
+        const text = await e.async("string");
+        const fname = e.name.split("/").pop();
+        chapters.push({ name: fname, content: text });
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Không thể giải nén .zip.");
+      setMsg("");
+      return;
+    }
+  } else {
+    setMsg("Đang đọc các chap…");
+    for (const f of htmlFiles) {
+      const text = await fileToText(f);
+      chapters.push({ name: f.name, content: text });
+    }
+  }
+
+  chapters.sort(naturalCompareBy("name"));
+
+  const story = { storyName: name, cover: coverData, chapters };
+  stories.push(story);
+  localStorage.setItem("stories", JSON.stringify(stories));
+
+  setMsg("✅ Tạo truyện thành công!");
+  setStat(`${chapters.length} chap đã lưu.`);
+  document.getElementById("storyName").value = "";
+  document.getElementById("coverInput").value = "";
+  document.getElementById("chapFiles").value = "";
+  document.getElementById("zipFile").value = "";
+});
+
+function setMsg(t){ document.getElementById("msg").textContent = t; }
+function setStat(t){ document.getElementById("stat").textContent = t; }
+
+function fileToText(file){
+  return new Promise((resolve,reject)=>{
+    const r = new FileReader();
+    r.onload = e => resolve(e.target.result);
+    r.onerror = reject;
+    r.readAsText(file);
+  });
+}
+function fileToDataURL(file){
+  return new Promise((resolve,reject)=>{
+    const r = new FileReader();
+    r.onload = e => resolve(e.target.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+function naturalCompareBy(key){
+  const collator = new Intl.Collator(undefined, {numeric:true, sensitivity:"base"});
+  return (a,b)=> collator.compare(a[key], b[key]);
 }
 </script>
 </body>
