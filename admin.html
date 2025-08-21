@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quản lý truyện</title>
+<style>
+body { font-family: Arial, sans-serif; background:#f4f4f4; margin:0; padding:0;}
+.container { max-width:700px; margin:50px auto; background:#fff; padding:20px; border-radius:8px; box-shadow:0 0 10px rgba(0,0,0,0.1);}
+input, button { width:100%; padding:10px; margin:10px 0; }
+button { background:#28a745; color:#fff; border:none; cursor:pointer;}
+button:hover { background:#218838;}
+</style>
+</head>
+<body>
+<div class="container">
+    <h2>Thêm truyện mới</h2>
+    <input type="text" id="storyName" placeholder="Tên truyện">
+    <label>Ảnh bìa:</label>
+    <input type="file" id="coverInput" accept="image/*">
+    <label>Chọn các chap (file HTML):</label>
+    <input type="file" id="chapFiles" multiple accept=".html,.htm">
+    <button onclick="addStory()">Upload truyện</button>
+    <p id="msg" style="color:green;"></p>
+</div>
+
+<script>
+let stories = JSON.parse(localStorage.getItem("stories") || "[]");
+
+function addStory(){
+    const name = document.getElementById("storyName").value.trim();
+    const coverFile = document.getElementById("coverInput").files[0];
+    const files = document.getElementById("chapFiles").files;
+
+    if(!name || !coverFile || files.length === 0){
+        alert("Vui lòng nhập tên truyện, chọn ảnh bìa và ít nhất 1 chap!");
+        return;
+    }
+
+    // Đọc ảnh bìa thành Base64
+    const readerCover = new FileReader();
+    readerCover.onload = function(e){
+        const coverData = e.target.result;
+        const story = { storyName: name, cover: coverData, chapters: [] };
+
+        let loaded = 0;
+        for(const file of files){
+            const reader = new FileReader();
+            reader.onload = function(ev){
+                story.chapters.push({ name:file.name, content: ev.target.result });
+                loaded++;
+                if(loaded === files.length){
+                    // Sắp xếp chap theo tên file
+                    story.chapters.sort((a,b)=>a.name.localeCompare(b.name));
+                    stories.push(story);
+                    localStorage.setItem("stories", JSON.stringify(stories));
+                    document.getElementById("msg").innerText = "Upload thành công!";
+                    document.getElementById("storyName").value = "";
+                    document.getElementById("coverInput").value = "";
+                    document.getElementById("chapFiles").value = "";
+                }
+            };
+            reader.readAsText(file);
+        }
+    };
+    readerCover.readAsDataURL(coverFile);
+}
+</script>
+</body>
+</html>
